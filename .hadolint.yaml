@@ -1,0 +1,7 @@
+# Shared Hadolint defaults for every image in this repo.
+# Override per image later if a Dockerfile needs a narrow exception.
+failure-threshold: warning
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+ignored: []
