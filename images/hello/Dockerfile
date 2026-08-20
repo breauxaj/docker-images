@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.title="hello" \
       org.opencontainers.image.description="Example image for the docker-images monorepo"
 
 RUN adduser -D -u 1000 app
-USER app
+USER 1000
 WORKDIR /home/app
 
 ENV VERSION="${VERSION}"
