@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Lint Dockerfiles
+        uses: hadolint/hadolint-action@v3.4.0
+        with:
+          dockerfile: Dockerfile
+          recursive: true
+          config: .hadolint.yaml
+
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.changed.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve images to build
+        id: changed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            images="$(./scripts/changed-images.py --json "origin/${BASE_REF}")"
+          else
+            images="$(./scripts/changed-images.py --json "${{ github.event.before }}")"
+          fi
+          echo "images=${images}" >> "$GITHUB_OUTPUT"
+          echo "Building: ${images}"
+
+  build:
+    needs: [lint, prepare]
+    if: needs.prepare.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.prepare.outputs.images) }}
+    env:
+      REGISTRY: ghcr.io/${{ github.repository }}
+      IMAGE: ${{ matrix.image }}
+      PUBLISH: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          bake-target: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+
+      - name: Set up QEMU
+        if: env.PUBLISH == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: |
+            ./docker-bake.hcl
+            ./images/${{ env.IMAGE }}/docker-bake.hcl
+            cwd://${{ steps.meta.outputs.bake-file }}
+          targets: ${{ env.IMAGE }}
+          # Never --load in CI: the docker exporter cannot write a manifest list,
+          # and Buildx provenance/SBOM (or multi-platform) always produce one.
+          load: false
+          push: ${{ env.PUBLISH == 'true' }}
+          provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
+          sbom: ${{ env.PUBLISH == 'true' }}
+          set: |
+            *.cache-from=type=gha,scope=${{ env.IMAGE }}
+            *.cache-to=type=gha,mode=max,scope=${{ env.IMAGE }}
+            ${{ env.PUBLISH == 'true' && '*.platform=linux/amd64,linux/arm64' || '*.platform=linux/amd64' }}
+          vars: |
+            REGISTRY=${{ env.REGISTRY }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
