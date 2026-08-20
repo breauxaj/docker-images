@@ -69,7 +69,6 @@ jobs:
       REGISTRY: ghcr.io/${{ github.repository }}
       IMAGE: ${{ matrix.image }}
       PUBLISH: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
-      PLATFORMS: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'linux/amd64,linux/arm64' || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -111,14 +110,16 @@ jobs:
             ./images/${{ env.IMAGE }}/docker-bake.hcl
             cwd://${{ steps.meta.outputs.bake-file }}
           targets: ${{ env.IMAGE }}
-          load: ${{ env.PUBLISH != 'true' }}
+          # Never --load in CI: the docker exporter cannot write a manifest list,
+          # and Buildx provenance/SBOM (or multi-platform) always produce one.
+          load: false
           push: ${{ env.PUBLISH == 'true' }}
-          provenance: ${{ env.PUBLISH == 'true' }}
+          provenance: ${{ env.PUBLISH == 'true' && 'mode=max' || 'false' }}
           sbom: ${{ env.PUBLISH == 'true' }}
           set: |
             *.cache-from=type=gha,scope=${{ env.IMAGE }}
             *.cache-to=type=gha,mode=max,scope=${{ env.IMAGE }}
+            ${{ env.PUBLISH == 'true' && '*.platform=linux/amd64,linux/arm64' || '*.platform=linux/amd64' }}
           vars: |
             REGISTRY=${{ env.REGISTRY }}
             SOURCE=${{ github.server_url }}/${{ github.repository }}
-            PLATFORMS=${{ env.PLATFORMS }}
