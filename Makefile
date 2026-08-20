@@ -42,7 +42,7 @@ print:
 	docker buildx bake $(BAKE_FLAGS) --print $(BAKE_TARGETS)
 
 build:
-	REGISTRY=$(REGISTRY) TAG=$(TAG) docker buildx bake $(BAKE_FLAGS) $(BAKE_TARGETS)
+	REGISTRY=$(REGISTRY) TAG=$(TAG) docker buildx bake --load --provenance=false $(BAKE_FLAGS) $(BAKE_TARGETS)
 
 new:
 	@test -n "$(NAME)" || { echo 'NAME is required, e.g. make new NAME=my-tool'; exit 1; }
