@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.title="__IMAGE__" \
       org.opencontainers.image.description="TODO: describe this image"
 
 RUN adduser -D -u 1000 app
-USER app
+USER 1000
 WORKDIR /home/app
 
 ENV VERSION="${VERSION}"
