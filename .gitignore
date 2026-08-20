@@ -1,0 +1,14 @@
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.oci
+.docker-bake.override.hcl
